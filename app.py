@@ -9,30 +9,35 @@ from langchain.prompts import PromptTemplate
 from langchain_community.graphs import Neo4jGraph
 from langchain_community.chains.graph_qa.cypher import GraphCypherQAChain
 
-# Set up your Google API key as an environment variable
-# If you don't have one, you can get it from Google AI Studio
-os.environ["GOOGLE_API_KEY"] = "AIzaSyA5ApL2ltwbFn4GQShKTz_t35744kkq8dg"
+# -----------------------------
+# 🔹 API Keys & Config
+# -----------------------------
+os.environ["GOOGLE_API_KEY"] = "YOUR_GOOGLE_API_KEY"  # replace with your Gemini API key
 
-# ====== Gemini LLM config ======
-# Replace with your actual Gemini API key
-llm_gemini = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",  # You can choose other Gemini models like "gemini-1.5-pro-latest"
-    temperature=0,
-)
-
-URI = "neo4j+s://f130631d.databases.neo4j.io"   # Change if using Neo4j Aura
+URI = "neo4j+s://f130631d.databases.neo4j.io"
 USER = "neo4j"
-PASSWORD = "YWbr8AJPpup1G3tmlrgXp1iw0B_VKXRpk_JwPHrG-WI"
+PASSWORD = "YOUR_NEO4J_PASSWORD"
 
+# Raw Neo4j driver (needed for graph visualization)
+driver = GraphDatabase.driver(URI, auth=(USER, PASSWORD))
+
+# LangChain wrapper for Gemini + Neo4j
 graph = Neo4jGraph(
     url=URI,
     username=USER,
     password=PASSWORD
 )
 
-# ====== LLM Response ======
+# Gemini LLM
+llm_gemini = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    temperature=0,
+)
+
+# -----------------------------
+# 🔹 LLM Response Function
+# -----------------------------
 def response(question):
-    # ====== Prompt Template ======
     CYPHER_GENERATION_TEMPLATE = """Task:Generate Cypher statement to query a graph database.
     Instructions:
     Use only the provided relationship types and properties in the schema.
@@ -58,8 +63,6 @@ def response(question):
         input_variables=["schema", "question"], template=CYPHER_GENERATION_TEMPLATE
     )
 
-    # ====== Cypher QA Chain ======
-    # Use the Gemini LLM
     chain = GraphCypherQAChain.from_llm(
         llm=llm_gemini,
         graph=graph,
@@ -69,11 +72,12 @@ def response(question):
         cypher_prompt=CYPHER_GENERATION_PROMPT
     )
 
-    # ====== Run Query ======
-    response = chain.run(question)
-    return response
+    return chain.run(question)
 
 
+# -----------------------------
+# 🔹 Graph Functions
+# -----------------------------
 def get_graph_data(limit=20):
     query = f"""
     MATCH (n)-[r]->(m)
@@ -98,9 +102,9 @@ def visualize_graph(results):
 
     net = Network(height="550px", width="100%", bgcolor="#222222", font_color="white")
     net.from_nx(G)
-
     net.save_graph("graph.html")
     return "graph.html"
+
 
 # -----------------------------
 # 🔹 Streamlit UI
@@ -108,8 +112,6 @@ def visualize_graph(results):
 st.set_page_config(layout="wide", page_title="Chatbot + Neo4j Visualization")
 
 col1, col2 = st.columns([1, 2])
-
-
 
 # -----------------------------
 # 💬 Chatbot Section (Left)
@@ -123,18 +125,16 @@ with col1:
     user_input = st.text_input("Type your message:")
 
     if user_input:
-        # 🔹 Replace this with real chatbot logic (LLM, Rasa, etc.)
-        bot_response = f"🤖"+response(user_input)
-
+        bot_response = f"🤖 {response(user_input)}"
         st.session_state.history.append(("You", user_input))
         st.session_state.history.append(("Bot", bot_response))
 
     # Display conversation history
     for speaker, text in st.session_state.history:
         if speaker == "You":
-            st.markdown(f"🧑 {speaker}:** {text}")
+            st.markdown(f"🧑 **{speaker}:** {text}")
         else:
-            st.markdown(f"{speaker}:** {text}")
+            st.markdown(f"**{speaker}:** {text}")
 
 # -----------------------------
 # 📊 Graph Section (Right)
@@ -147,5 +147,4 @@ with col2:
         graph_html = visualize_graph(results)
 
         with open(graph_html, "r", encoding="utf-8") as f:
-            html_content = f.read()
-            components.html(html_content, height=600, scrolling=True)
+            components.html(f.read(), height=600, scrolling=True)
