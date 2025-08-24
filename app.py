@@ -49,8 +49,33 @@ graph_for_llm = Neo4jGraph(
     password=PASSWORD
 )
 
+# -----------------------------
+# Intent classification using LLM
+# -----------------------------
+INTENT_PROMPT = PromptTemplate(
+    input_variables=["user_input","schema"],
+    template="""
+You are an intent classifier. Decide if the user query is:
+1. 'knowledge graph' → if it is asking about data in the Neo4j database (entities, relationships, properties) described in the schema.
+2. 'other' → if it is unrelated to both.
+
+Schema of the graph database:
+{schema}
+
+User query:
+{user_input}
+
+Return only one word: 'knowledge graph' or 'other'.
+"""
+)
+
+def classify_intent(user_input: str) -> str:
+    prompt_text = INTENT_PROMPT.format(user_input=user_input,schema=graph_for_llm.schema)
+    intent = llm_gemini.invoke(prompt_text)
+    return intent.content.strip().lower()
+
 # ====== LLM Response ======
-def response(question, chat_history=[]):
+def graph_response(question, chat_history=[]):
     """Generates an LLM response and a Cypher query for graph visualization."""
     CYPHER_GENERATION_TEMPLATE = """Task:Generate Cypher statement to query a graph database.
     Instructions:
@@ -99,6 +124,17 @@ def response(question, chat_history=[]):
         intermediate_steps_data = response_dict['intermediate_steps'][1].get('context')
     
     return llm_answer, intermediate_steps_data
+
+def hybrid_response(user_input, chat_history):
+    intent = classify_intent(user_input)
+    print("Intent :", intent)
+    if intent == "other":
+        # Pass directly to LLM (no Neo4j)
+        reply = llm_gemini.invoke(user_input).content
+        return reply, None
+    else:
+        # Run through RAG pipeline
+        return graph_response(user_input, chat_history)
 
 def visualize_graph(data):
     """
@@ -156,9 +192,13 @@ with col1:
     user_input = st.text_input("Type your message:")
 
     if user_input:
-        st.session_state.llm_answer, st.session_state.intermediate_steps_data = response(
-            question=user_input, 
-            chat_history=st.session_state.history
+        # st.session_state.llm_answer, st.session_state.intermediate_steps_data = response(
+        #     question=user_input, 
+        #     chat_history=st.session_state.history
+        # )
+
+        st.session_state.llm_answer, st.session_state.intermediate_steps_data = hybrid_response(
+            user_input, st.session_state.history
         )
         bot_response = f"🤖 {st.session_state.llm_answer}"
         st.session_state.history.append(("You", user_input))
